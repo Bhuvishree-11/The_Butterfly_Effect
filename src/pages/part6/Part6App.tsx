@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ResponsiveContainer,
   PieChart,
@@ -16,6 +16,7 @@ import { Task, Scenario, Status } from './engine';
 import { TASKS, EDGES, SEED_SCENARIOS } from './mock';
 
 const KEY = 'butterfly.scenarios.v1';
+const READ_KEY = 'butterfly.notifications.read.v1';
 
 const load = (): Scenario[] => {
   try {
@@ -26,11 +27,28 @@ const load = (): Scenario[] => {
   }
 };
 
+const loadReadNotifications = (): string[] => {
+  try {
+    const value = localStorage.getItem(READ_KEY);
+    return value ? JSON.parse(value) : [];
+  } catch {
+    return [];
+  }
+};
+
 const COLORS: Record<string, string> = {
   Completed: '#059669',
   'In progress': '#0284c7',
   Blocked: '#dc2626',
   'Not started': '#94a3b8',
+};
+
+type Notification = {
+  id: string;
+  title: string;
+  message: string;
+  priority: 'High' | 'Medium' | 'Info';
+  taskId?: number;
 };
 
 export default function Part6App() {
@@ -42,6 +60,10 @@ export default function Part6App() {
   const [scenarios, setScenarios] = useState<Scenario[]>(load);
   const [simTask, setSimTask] = useState<number | null>(null);
 
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [readNotifications, setReadNotifications] =
+    useState<string[]>(loadReadNotifications);
+
   useEffect(() => {
     try {
       localStorage.setItem(KEY, JSON.stringify(scenarios));
@@ -49,6 +71,58 @@ export default function Part6App() {
       // Local storage may be unavailable.
     }
   }, [scenarios]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(READ_KEY, JSON.stringify(readNotifications));
+    } catch {
+      // Local storage may be unavailable.
+    }
+  }, [readNotifications]);
+
+  const notifications = useMemo<Notification[]>(() => {
+    const alerts: Notification[] = [];
+
+    tasks.forEach((task) => {
+      if (task.status === 'blocked') {
+        alerts.push({
+          id: `blocked-${task.id}`,
+          title: `${task.name} is blocked`,
+          message: `Assigned to ${task.assignee}. Review this task in the workflow map.`,
+          priority: 'High',
+          taskId: task.id,
+        });
+      } else if (task.status === 'in_progress') {
+        alerts.push({
+          id: `progress-${task.id}`,
+          title: `${task.name} is in progress`,
+          message: `Assigned to ${task.assignee}. Monitor its progress.`,
+          priority: 'Medium',
+          taskId: task.id,
+        });
+      }
+
+      if (
+        task.status !== 'completed' &&
+        task.deadline &&
+        task.status !== 'blocked'
+      ) {
+        alerts.push({
+          id: `deadline-${task.id}`,
+          title: task.deadlineLabel || `${task.name} deadline`,
+          message: `Deadline: ${task.deadline}. Check the workflow for possible risks.`,
+          priority: 'Medium',
+          taskId: task.id,
+        });
+      }
+    });
+
+    return alerts;
+  }, [tasks]);
+
+  const unreadCount = notifications.filter(
+    (notification) => !readNotifications.includes(notification.id),
+  ).length;
 
   const completed = tasks.filter(
     (task) => task.status === 'completed',
@@ -107,6 +181,29 @@ export default function Part6App() {
     },
   ];
 
+  const openNotification = (notification: Notification) => {
+    setReadNotifications((current) =>
+      current.includes(notification.id)
+        ? current
+        : [...current, notification.id],
+    );
+
+    setNotificationsOpen(false);
+
+    if (notification.taskId !== undefined) {
+      setTab('map');
+    }
+  };
+
+  const markAllAsRead = () => {
+    setReadNotifications((current) => [
+      ...new Set([
+        ...current,
+        ...notifications.map((notification) => notification.id),
+      ]),
+    ]);
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
       <div className="mx-auto max-w-7xl p-4 md:p-8">
@@ -115,17 +212,143 @@ export default function Part6App() {
             <p className="mb-1 text-xs font-semibold uppercase tracking-[0.2em] text-teal-700">
               Workflow intelligence
             </p>
+
             <h1 className="text-2xl font-bold tracking-tight text-[#0b2a4a] md:text-3xl">
               The Butterfly Effect
             </h1>
+
             <p className="mt-1 text-sm text-slate-500">
               Workflow monitoring, dependency analysis and delay simulation
             </p>
           </div>
 
-          <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
-            Synthetic demonstration data
-          </span>
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setNotificationsOpen((open) => !open)}
+                aria-label={`Notifications, ${unreadCount} unread`}
+                aria-expanded={notificationsOpen}
+                className="relative flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-xl shadow-sm transition hover:bg-slate-100"
+              >
+                <span aria-hidden="true">🔔</span>
+
+                {unreadCount > 0 && (
+                  <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
+              </button>
+
+              {notificationsOpen && (
+                <div className="absolute right-0 z-50 mt-3 w-[min(90vw,390px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+                  <div className="flex items-center justify-between border-b border-slate-100 p-4">
+                    <div>
+                      <h2 className="font-bold text-[#0b2a4a]">
+                        Notifications
+                      </h2>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {unreadCount} unread alert
+                        {unreadCount === 1 ? '' : 's'}
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={markAllAsRead}
+                      className="text-xs font-semibold text-teal-700 hover:text-teal-900"
+                    >
+                      Mark all read
+                    </button>
+                  </div>
+
+                  <div className="max-h-[420px] overflow-y-auto">
+                    {notifications.length === 0 ? (
+                      <div className="p-8 text-center">
+                        <p className="text-3xl">✓</p>
+                        <p className="mt-2 font-semibold text-slate-700">
+                          All clear!
+                        </p>
+                        <p className="mt-1 text-sm text-slate-500">
+                          No task alerts at the moment.
+                        </p>
+                      </div>
+                    ) : (
+                      notifications.map((notification) => {
+                        const isRead = readNotifications.includes(
+                          notification.id,
+                        );
+
+                        const priorityStyle =
+                          notification.priority === 'High'
+                            ? 'bg-red-50 text-red-700'
+                            : notification.priority === 'Medium'
+                              ? 'bg-amber-50 text-amber-700'
+                              : 'bg-sky-50 text-sky-700';
+
+                        return (
+                          <button
+                            type="button"
+                            key={notification.id}
+                            onClick={() => openNotification(notification)}
+                            className={`block w-full border-b border-slate-100 p-4 text-left transition hover:bg-slate-50 ${
+                              isRead ? 'bg-white' : 'bg-teal-50/40'
+                            }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <span
+                                className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${
+                                  isRead ? 'bg-slate-300' : 'bg-teal-500'
+                                }`}
+                              />
+
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span
+                                    className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase ${priorityStyle}`}
+                                  >
+                                    {notification.priority}
+                                  </span>
+
+                                  {!isRead && (
+                                    <span className="text-[10px] font-semibold text-teal-700">
+                                      NEW
+                                    </span>
+                                  )}
+                                </div>
+
+                                <p className="mt-2 text-sm font-semibold text-slate-800">
+                                  {notification.title}
+                                </p>
+
+                                <p className="mt-1 text-xs leading-5 text-slate-500">
+                                  {notification.message}
+                                </p>
+
+                                <p className="mt-2 text-xs font-semibold text-teal-700">
+                                  View workflow →
+                                </p>
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  <div className="border-t border-slate-100 bg-slate-50 px-4 py-3">
+                    <p className="text-[11px] text-slate-500">
+                      Alerts are generated from local demonstration data.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+              Synthetic demonstration data
+            </span>
+          </div>
         </header>
 
         <nav
@@ -301,7 +524,9 @@ export default function Part6App() {
                     <div
                       className="h-full rounded-full bg-slate-500"
                       style={{
-                        width: `${tasks.length ? (notStarted / tasks.length) * 100 : 0}%`,
+                        width: `${
+                          tasks.length ? (notStarted / tasks.length) * 100 : 0
+                        }%`,
                       }}
                     />
                   </div>
