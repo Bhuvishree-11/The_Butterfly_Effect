@@ -22,3 +22,13 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+# Python cache files
+__pycache__/
+*.py[cod]
+
+# Local SQLite database
+Backend/butterfly.db
+
+# Python virtual environments
+.venv/
+venv/
